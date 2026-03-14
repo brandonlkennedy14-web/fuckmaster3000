@@ -7,6 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
+    <script>
+    window._gbMemory = (function() { try { return JSON.parse(localStorage.getItem('sim3_gb_memory') || '[]'); } catch(e) { return []; } })();
+    window._gbMemoryWrite = function(sessionSummary) { var mem = window._gbMemory || []; mem.push({ ts: Date.now(), ...sessionSummary }); if (mem.length > 3) mem = mem.slice(-3); window._gbMemory = mem; try { localStorage.setItem('sim3_gb_memory', JSON.stringify(mem)); } catch(e) {} };
+    window._gbCallbacks = {}; window._gbControlQueue = [];
+    window.GenesisBrain = window.GenesisBrain || { connect: () => Promise.resolve(), writeDraw: () => {} };
+    </script>
+    
     <link rel="stylesheet" href="css/styles.css" onerror="this.onerror=null;this.href='styles.css';">
     <style>
         * { box-sizing: border-box; }
@@ -70,6 +77,13 @@
                                 </select>
                             </div>
                             <div style="display:flex;align-items:center;gap:4px;">
+                                <span style="color:#cbd5e1;font-size:9px;text-transform:uppercase;font-weight:700;">Camera:</span>
+                                <select id="v4-camera-select" style="background:#0f172a;color:#22c55e;border:1px solid #334155;padding:4px 8px;border-radius:6px;font-size:10px;cursor:pointer;">
+                                    <option value="pan">Auto-Pan</option>
+                                    <option value="static">Static</option>
+                                </select>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:4px;">
                                 <span style="color:#cbd5e1;font-size:9px;text-transform:uppercase;font-weight:700;">Shape:</span>
                                 <select id="v4-shape-select" style="background:#0f172a;color:#14b8a6;border:1px solid #334155;padding:4px 8px;border-radius:6px;font-size:10px;cursor:pointer;">
                                     <option value="cube">Euclidean Cube</option>
@@ -103,14 +117,10 @@
                                     <option value="media">Shattered Prism</option>
                                 </select>
                             </div>
-                            <div style="display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.4);padding:4px 10px;border-radius:6px;border:1px solid rgba(148,163,184,0.2);">
-                                <label style="color:#e2e8f0;font-size:10px;text-transform:uppercase;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="v4-show-nodes" checked style="accent-color:#ec4899;"> Nodes</label>
-                                <label style="color:#e2e8f0;font-size:10px;text-transform:uppercase;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="v4-show-mesh" checked style="accent-color:#ec4899;"> Mesh</label>
-                            </div>
                         </div>
 
                         <div style="display:flex;gap:16px;margin-top:12px;font-size:10px;font-family:monospace;color:#64748b;">
-                            <span>AUDIO LEVEL: <span id="v4-audio-level" style="color:#facc15;font-weight:bold;">0%</span></span>
+                            <span>AUDIO: <span id="v4-audio-level" style="color:#facc15;font-weight:bold;">0%</span></span>
                             <span>CHAOS: <span id="v4-stat-chaos" style="color:#ec4899;font-weight:bold;">0.00</span></span>
                             <span id="v4-sync-status" style="color:#f59e0b;font-weight:bold;">SYNC: OFFLINE</span>
                         </div>
