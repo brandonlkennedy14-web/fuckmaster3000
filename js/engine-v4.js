@@ -6,7 +6,8 @@ function initV4() {
     
     let CX = W/2, CY = H/2; let baseScale = Math.min(W, H) / 400; 
     let ticks = 0, chaosRatio = 0, geoScale = 1.0;
-    let simMode = 'platonic'; // 'platonic' or 'gens_pad'
+    let simMode = 'platonic'; 
+    let cameraYaw = 0; // Tracks rotation independently
     
     const SE = window.ShapeEngine || { projectPoint: (x,y,z)=>({x,y,scale:1,depth:z}) };
     const CE = window.ColourEngine || { spectrum: [{nm:700},{nm:460}], wavelengthToCones: ()=>({L:1,M:1,S:1}), interfereCones: ()=>({L:1,M:1,S:1}), conesToHex: ()=>'#ffffff' };
@@ -19,7 +20,6 @@ function initV4() {
     let Uni2 = { balls: JSON.parse(JSON.stringify(balls3D)), offset: -350 };
     let Uni3 = { balls: JSON.parse(JSON.stringify(balls3D)), offset: 350 };
 
-    // ── MEDIA ENGINE ──
     let mediaElement = document.createElement('video');
     mediaElement.crossOrigin = "anonymous"; mediaElement.loop = true; mediaElement.muted = true; mediaElement.playsInline = true;
     let audioCtx = null, analyser = null, dataArray = null; let currentMediaMode = 'off'; let audioForce = 0;
@@ -46,30 +46,31 @@ function initV4() {
         });
     }
 
-    // ── GEN'S PAD (MULTIPLAYER MOUSE INPUT) ──
+    // ── GEN'S PAD LOCAL FALLBACK ──
+    window._localPadNodes = window._localPadNodes || [];
     let isDrawing = false;
-    canvas.addEventListener('pointerdown', (e) => { if(simMode === 'gens_pad') isDrawing = true; });
+    canvas.addEventListener('pointerdown', () => { if(simMode === 'gens_pad') isDrawing = true; });
     canvas.addEventListener('pointerup', () => { isDrawing = false; });
     canvas.addEventListener('pointermove', (e) => {
-        if (simMode === 'gens_pad' && isDrawing && window.GenesisBrain) {
-            // Map screen X/Y to relative 3D space (-150 to 150)
-            let rx = ((e.clientX - CX) / scaleMod) || 0;
-            let ry = ((e.clientY - CY) / scaleMod) || 0;
-            let rz = Math.sin(ticks * 0.1) * 50; // Oscillating depth
-            
+        if (simMode === 'gens_pad' && isDrawing) {
+            let rx = ((e.clientX - CX) / baseScale) || 0;
+            let ry = ((e.clientY - CY) / baseScale) || 0;
+            let rz = Math.sin(ticks * 0.1) * 50; 
             let color = CE.spectrum ? CE.spectrum[Math.floor(Math.random()*CE.spectrum.length)].hex : '#facc15';
             
             let drawNode = { x: rx, y: ry, z: rz, c: color, life: 100 };
-            window.GenesisBrain.writeDraw(drawNode);
+            window._localPadNodes.push(drawNode);
+            if (window._localPadNodes.length > 300) window._localPadNodes.shift();
+            
+            // Try to broadcast if connected
+            if (window.GenesisBrain && typeof window.GenesisBrain.writeDraw === 'function') {
+                window.GenesisBrain.writeDraw(drawNode);
+            }
         }
     });
 
-    let scaleMod = baseScale;
-
-    // ── AUTO-IGNITION SYNC ──
     function syncTimeline(universe, target) {
         try {
-            // THE FIX: If V4 tries to sync but the engine isn't built yet, FORCE BUILD IT!
             if ((target === 'v1' || target === 'both') && !window.v1LiveBalls) { if(typeof window.initV1 === 'function') window.initV1(); }
             if ((target === 'v2' || target === 'both') && !window.v2LiveBalls) { if(typeof window.initV2 === 'function') window.initV2(); }
 
@@ -82,7 +83,7 @@ function initV4() {
                 while(universe.balls.length < sourceBalls.length) universe.balls.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,winding:0,path:[]});
                 while(universe.balls.length > sourceBalls.length) universe.balls.pop();
 
-                let scaleF = 150 / 250; // Perfect alignment scale
+                let scaleF = 150 / 250; 
                 let uChaosSynced = 0;
 
                 for(let i=0; i<sourceBalls.length; i++) {
@@ -105,8 +106,7 @@ function initV4() {
     }
 
     function tickPhysics(universe) {
-        if (simMode === 'gens_pad') return 0; // Physics frozen in Pad mode
-
+        if (simMode === 'gens_pad') return 0; 
         audioForce = 0;
         if (analyser && currentMediaMode !== 'off') {
             analyser.getByteFrequencyData(dataArray); let sum = 0; for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
@@ -165,8 +165,7 @@ function initV4() {
                 let zCam = z2 + 80; if (zCam < 1) zCam = 1; 
                 let scale = 400 / zCam; return { x: x1 * scale, y: y1 * scale, scale: scale, depth: z2 };
             } else {
-                // In Gen's Pad, we override rotation to give a clear canvas view
-                let curPitch = simMode === 'gens_pad' ? 0.2 : pitch;
+                let curPitch = simMode === 'gens_pad' ? 0.0 : pitch;
                 let curYaw = simMode === 'gens_pad' ? 0.0 : yaw;
                 let r = SE.projectPoint(cx + xOffset, cy, cz, '3d', curPitch, curYaw);
                 if (!isFinite(r.scale) || r.scale > 100) r.scale = 1; return { x: r.x||0, y: r.y||0, scale: r.scale, depth: r.depth };
@@ -198,41 +197,36 @@ function initV4() {
             ctx.globalCompositeOperation = 'source-over';
         };
 
-        // ── GEN'S PAD RENDERING ──
         if (simMode === 'gens_pad') {
-            ctx.globalAlpha = 1.0;
-            ctx.globalCompositeOperation = 'screen';
-            if (window.GenesisBrain && window.GenesisBrain.padNodes) {
-                let nodes = window.GenesisBrain.padNodes;
-                for(let i=0; i<nodes.length; i++) {
-                    let n = nodes[i];
-                    n.life = (n.life || 100) - 0.2; // Fade over time
-                    if (n.life <= 0) continue;
-                    
-                    let p = getProj(n.x, n.y, n.z);
-                    ctx.beginPath();
-                    ctx.arc(CX + p.x*scaleMod, CY + p.y*scaleMod, 8 * p.scale * (n.life/100), 0, Math.PI*2);
-                    ctx.fillStyle = n.c;
-                    ctx.shadowColor = n.c;
-                    ctx.shadowBlur = 15;
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                }
+            ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'screen';
+            let nodes = window._localPadNodes;
+            for(let i=0; i<nodes.length; i++) {
+                let n = nodes[i]; n.life = (n.life || 100) - 0.5; if (n.life <= 0) continue;
+                let p = getProj(n.x, n.y, n.z);
+                ctx.beginPath(); ctx.arc(CX + p.x*scaleMod, CY + p.y*scaleMod, 8 * p.scale * (n.life/100), 0, Math.PI*2);
+                ctx.fillStyle = n.c; ctx.shadowColor = n.c; ctx.shadowBlur = 15; ctx.fill(); ctx.shadowBlur = 0;
             }
-            ctx.globalCompositeOperation = 'source-over';
-            return; // Skip normal physics rendering if in Pad mode
+            ctx.globalCompositeOperation = 'source-over'; return; 
         }
 
-        // ── NORMAL PHYSICS RENDERING ──
         let projected = universe.balls.map(b => { let p = getProj(b.x, b.y, b.z); return { obj: b, x: p.x, y: p.y, scale: p.scale, depth: p.depth }; });
         projected.sort((a, b) => b.depth - a.depth);
+
+        // ── SPHERICAL CLIPPING MASK (The Globe Effect) ──
+        if (shape === 'sphere' || shape === 'hyperbolic') {
+            ctx.save();
+            ctx.beginPath();
+            let center = getProj(0, 0, 0); 
+            let r = bnd * center.scale; 
+            ctx.arc(CX + center.x * scaleMod, CY + center.y * scaleMod, r * scaleMod, 0, Math.PI*2);
+            ctx.clip(); // This perfectly contains the holographic slices inside the globe!
+        }
 
         if (v5Mode !== 'off') {
             let cvs1 = window._v1FinalCvs; let cvs2 = window._v2FinalCvs;
             let targetCvsXY = (v5Mode === 'v1' || v5Mode === 'both') ? cvs1 : null;
             let targetCvsYZ = (v5Mode === 'v2' || v5Mode === 'both') ? cvs2 : null;
             let targetCvsXZ = (v5Mode === 'both') ? cvs1 : null; 
-            
             if (v5Mode === 'media' && currentMediaMode !== 'off' && mediaElement.readyState >= 2) { targetCvsXY = mediaElement; targetCvsYZ = mediaElement; targetCvsXZ = mediaElement; }
 
             let opacity = viewPlane === 'fpv' ? 0.45 : 0.20; let slices = 5; 
@@ -243,6 +237,8 @@ function initV4() {
                 if (targetCvsXZ) { let curY = -bnd + lerp * (bnd * 2); drawPlaneWarp([{x:-bnd, y:curY, z:-bnd}, {x:bnd, y:curY, z:-bnd}, {x:bnd, y:curY, z:bnd}, {x:-bnd, y:curY, z:bnd}], targetCvsXZ, opacity * 0.4); }
             }
         }
+
+        if (shape === 'sphere' || shape === 'hyperbolic') { ctx.restore(); }
 
         ctx.globalAlpha = 1.0; ctx.strokeStyle = 'rgba(51,65,85,0.3)'; ctx.lineWidth = 1;
         if (shape === 'sphere' || shape === 'hyperbolic') {
@@ -320,13 +316,18 @@ function initV4() {
             ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, W, H);
 
             const vView = document.getElementById('v4-view-select'); let viewPlane = vView ? vView.value : '3d';
+            const vCam = document.getElementById('v4-camera-select'); let camMode = vCam ? vCam.value : 'pan';
             const vHolo = document.getElementById('v5-render-select'); let v5Mode = vHolo ? vHolo.value : 'off';
             const vMesh = document.getElementById('v4-mesh-fill'); let meshFill = vMesh ? vMesh.value : 'color';
             const vShape = document.getElementById('v4-shape-select'); let shape = vShape ? vShape.value : 'cube';
             const chkNodes = document.getElementById('v4-show-nodes'); let showNodes = chkNodes ? chkNodes.checked : true;
             const chkMesh = document.getElementById('v4-show-mesh'); let showMesh = chkMesh ? chkMesh.checked : true;
 
-            // BACKGROUND ENGINE TICKING (Bypasses Browser Throttling)
+            // Camera Rotation Logic
+            if (camMode === 'pan') cameraYaw += 0.0035;
+            let pitch = 0.15; // Locked Sideways Pitch
+            let yaw = cameraYaw;
+
             let needV1 = (v5Mode === 'v1' || v5Mode === 'both' || meshFill === 'v1');
             let needV2 = (v5Mode === 'v2' || v5Mode === 'both' || meshFill === 'v2');
             
@@ -352,8 +353,6 @@ function initV4() {
                 chaosRatio = (chaosRatio * 0.99) + (syncedChaos * 0.01);
             }
 
-            let pitch = ticks * 0.002; let yaw = ticks * 0.0035;
-            
             if (viewPlane === 'multiverse' && simMode !== 'gens_pad') {
                 if (!isSynced) { tickPhysics(Uni2); tickPhysics(Uni3); } else { Uni2.balls = JSON.parse(JSON.stringify(Uni1.balls)); Uni3.balls = JSON.parse(JSON.stringify(Uni1.balls)); }
                 let sm = baseScale * 0.40; 
@@ -364,11 +363,6 @@ function initV4() {
                 renderUniverse(Uni1, pitch, yaw, baseScale, v5Mode, meshFill, showNodes, showMesh, viewPlane, shape);
             }
 
-            if (simMode === 'platonic') {
-                geoScale += 0.003;
-                if (geoScale > 3.0) { geoScale = 0.5; [Uni1,Uni2,Uni3].forEach(u=>u.balls.forEach(b => { b.vx *= -0.8; b.vy *= -0.8; b.vz *= -0.8; b.x *= 0.5; b.y *= 0.5; b.z *= 0.5; })); }
-            }
-            
             const cEl = document.getElementById('v4-stat-chaos'); if (cEl) cEl.textContent = chaosRatio.toFixed(2);
             const tEl = document.getElementById('v4-stat-ticks'); if (tEl) tEl.textContent = ticks;
             ticks++;
@@ -377,8 +371,8 @@ function initV4() {
     }
     
     const tp = document.getElementById('v4-tab-platonic'); const td = document.getElementById('v4-tab-genspad');
-    if (tp) tp.onclick = () => { simMode = 'platonic'; geoScale = 0.5; resetMultiverse(); tp.style.cssText = 'padding:8px 16px;border-radius:8px;color:#ec4899;font-weight:700;border-bottom:2px solid #ec4899;cursor:pointer;background:rgba(15,23,42,0.8);'; if (td) td.style.cssText = 'padding:8px 16px;border-radius:8px;color:#facc15;font-weight:700;cursor:pointer;background:rgba(15,23,42,0.8);border-bottom:none;'; };
-    if (td) td.onclick = () => { simMode = 'gens_pad'; resetMultiverse(); td.style.cssText = 'padding:8px 16px;border-radius:8px;color:#facc15;font-weight:700;border-bottom:2px solid #facc15;cursor:pointer;background:rgba(15,23,42,0.8);'; if (tp) tp.style.cssText = 'padding:8px 16px;border-radius:8px;color:#ec4899;font-weight:700;cursor:pointer;background:rgba(15,23,42,0.8);border-bottom:none;'; };
+    if (tp) tp.onclick = () => { simMode = 'platonic'; geoScale = 1.0; tp.style.cssText = 'padding:8px 16px;border-radius:8px;color:#ec4899;font-weight:700;border-bottom:2px solid #ec4899;cursor:pointer;background:rgba(15,23,42,0.8);'; if (td) td.style.cssText = 'padding:8px 16px;border-radius:8px;color:#facc15;font-weight:700;cursor:pointer;background:rgba(15,23,42,0.8);border-bottom:none;'; };
+    if (td) td.onclick = () => { simMode = 'gens_pad'; td.style.cssText = 'padding:8px 16px;border-radius:8px;color:#facc15;font-weight:700;border-bottom:2px solid #facc15;cursor:pointer;background:rgba(15,23,42,0.8);'; if (tp) tp.style.cssText = 'padding:8px 16px;border-radius:8px;color:#ec4899;font-weight:700;cursor:pointer;background:rgba(15,23,42,0.8);border-bottom:none;'; };
     
     window.addEventListener('resize', () => { if (window.activeVersion === 'v4') { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; CX = W/2; CY = H/2; baseScale = Math.min(W, H) / 400; } });
 
