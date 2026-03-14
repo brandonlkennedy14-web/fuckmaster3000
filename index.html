@@ -145,6 +145,20 @@
 <script src="js/engine-v1.js" onerror="this.src='engine-v1.js'"></script>
 <script src="js/engine-v2.js" onerror="this.src='engine-v2.js'"></script>
 <script src="js/engine-v4.js" onerror="this.src='engine-v4.js'"></script>
+<script src="js/diagnostics.js" onerror="this.src='diagnostics.js'"></script> ```
+
+**Step B: Add the Tracker Button**
+Inside the `V4 MASTER UI` section, find where the "Nodes" and "Mesh" checkboxes are, and add this button right next to them:
+
+```html
+<div style="display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.4);padding:4px 10px;border-radius:6px;border:1px solid rgba(148,163,184,0.2);">
+    <label style="color:#e2e8f0;font-size:10px;text-transform:uppercase;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="v4-show-nodes" checked style="accent-color:#ec4899;"> Nodes</label>
+    <label style="color:#e2e8f0;font-size:10px;text-transform:uppercase;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="v4-show-mesh" checked style="accent-color:#ec4899;"> Mesh</label>
+</div>
+
+<button onclick="if(window.Diagnostics) window.Diagnostics.toggle()" style="background:#0f172a;color:#facc15;border:1px solid #334155;padding:4px 10px;border-radius:6px;font-size:9px;font-family:monospace;cursor:pointer;font-weight:bold;">
+    [+] DIAGNOSTICS
+</button>
 
 </body>
 </html>
